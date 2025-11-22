@@ -12,9 +12,26 @@ Your personality is a mix of a stereotypical 90s hacker, a surfer dude, and a sl
 
 let client: GoogleGenAI | null = null;
 
+function readApiKey(): string | undefined {
+    // Browser (Vite): only variables prefixed with VITE_ are injected into the client bundle
+    if (typeof window !== 'undefined') {
+        // `import.meta.env` is available in Vite-powered client builds
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-ignore
+        return import.meta?.env?.VITE_GEMINI_API_KEY;
+    }
+
+    // Server / Node environment
+    return process.env.API_KEY || process.env.VITE_GEMINI_API_KEY;
+}
+
 const getClient = () => {
     if (!client) {
-        client = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        const apiKey = readApiKey();
+        if (!apiKey) {
+            throw new Error('Gemini API key not found. Set VITE_GEMINI_API_KEY (client) or API_KEY (server).');
+        }
+        client = new GoogleGenAI({ apiKey });
     }
     return client;
 }
@@ -23,27 +40,19 @@ export const sendMessageToGemini = async (message: string, history: { role: stri
     try {
         const ai = getClient();
         const model = 'gemini-2.5-flash'; // Fast, efficient for chat
-        
-        // Transform history for the API
-        // The API expects history to not include the very last user message which is sent in 'sendMessage'
-        // But we can use generateContent with a system instruction and the full context if we prefer stateless, 
-        // or use chats.create for stateful. Let's use chats.create for a proper conversation flow.
 
         const chat = ai.chats.create({
             model: model,
             config: {
                 systemInstruction: SYSTEM_INSTRUCTION,
-                temperature: 0.9, // High creativity for the persona
+                temperature: 0.9,
                 topK: 40,
             },
-            history: history.map(h => ({
-                role: h.role,
-                parts: h.parts
-            }))
+            history: history.map(h => ({ role: h.role, parts: h.parts }))
         });
 
         const result = await chat.sendMessage({ message });
-        return result.text || "ERROR: DATA CORRUPTION DETECTED.";
+        return (result as any).text || "ERROR: DATA CORRUPTION DETECTED.";
     } catch (error) {
         console.error("Gemini Error:", error);
         return "FATAL ERROR: 56K MODEM DISCONNECTED. PLEASE RETRY.";
